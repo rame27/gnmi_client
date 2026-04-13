@@ -76,4 +76,4 @@ output:
   format: "json"  # Options: json, proto, text
   pretty_print: true
   log_to_file: true
-  log_file: "/home/ramesh/projects/sonic-buildimage/src/gnmi_client/gnmi_client.log"
+  log_file: "gnmi_client.log"

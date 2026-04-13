@@ -50,7 +50,7 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	client, err := NewGNMIClient(config)
+	client, err := NewGNMIClient(config, *debug)
 	if err != nil {
 		debugLog.Printf("Client creation error: %v", err)
 		fmt.Fprintf(os.Stderr, "Failed to create gNMI client: %v\n", err)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -124,12 +125,23 @@ type GNMIClient struct {
 	pollTicker *time.Ticker
 	stopChan   chan struct{}
 	mu         sync.Mutex
+
+	// verbose controls display style.
+	// true  → debug mode: full notification banners (existing behaviour)
+	// false → compact mode: one line per changed value, suppress duplicates
+	verbose bool
+
+	// lastValues tracks the most-recently displayed value for each full path
+	// string so that duplicate values are suppressed in compact mode.
+	lastValues map[string]string
 }
 
-func NewGNMIClient(config *GNMIConfig) (*GNMIClient, error) {
+func NewGNMIClient(config *GNMIConfig, verbose bool) (*GNMIClient, error) {
 	client := &GNMIClient{
-		config:   config,
-		stopChan: make(chan struct{}),
+		config:     config,
+		stopChan:   make(chan struct{}),
+		verbose:    verbose,
+		lastValues: make(map[string]string),
 	}
 
 	if err := client.parseMode(); err != nil {
@@ -631,13 +643,25 @@ func (c *GNMIClient) withAuthentication(ctx context.Context) context.Context {
 	return ctx
 }
 
+// printNotification is the entry point called from every subscription path.
+// It delegates to verbose (debug) or compact display based on c.verbose.
 func (c *GNMIClient) printNotification(notification *gnmipb.Notification) error {
 	timestamp := time.Unix(0, notification.Timestamp)
 	debugLog.Printf("Processing notification - timestamp: %d (%s), prefix: %v, %d updates",
 		notification.Timestamp, timestamp.Format(time.RFC3339), notification.Prefix, len(notification.Update))
 
-	fmt.Printf("\n=== Notification at %s ===\n", timestamp.Format(time.RFC3339))
+	if c.verbose {
+		c.printVerbose(notification, timestamp)
+	} else {
+		c.printCompact(notification, timestamp)
+	}
 
+	return nil
+}
+
+// printVerbose reproduces the original banner-style output used in debug mode.
+func (c *GNMIClient) printVerbose(notification *gnmipb.Notification, timestamp time.Time) {
+	fmt.Printf("\n=== Notification at %s ===\n", timestamp.Format(time.RFC3339))
 	for i, update := range notification.Update {
 		pathStr := c.pathToString(update.Path)
 		value := c.valueToString(update.Val)
@@ -646,8 +670,64 @@ func (c *GNMIClient) printNotification(notification *gnmipb.Notification) error 
 		fmt.Printf("Value: %s\n", value)
 		fmt.Println("---")
 	}
+}
 
-	return nil
+// printCompact emits one line per update, but only when the value has changed
+// since the last time it was displayed.
+//
+// Output format (tab-separated columns, fixed-width timestamp):
+//
+//	2026-04-13T17:25:31+05:30  in-octets                961870
+//	2026-04-13T17:25:31+05:30  mtu                      9100
+//
+// The path prefix (from the notification's prefix field) is combined with each
+// update's path to form a fully-qualified label. Only the leaf element name is
+// shown as the label; the full path is used as the de-duplication key.
+func (c *GNMIClient) printCompact(notification *gnmipb.Notification, timestamp time.Time) {
+	// Build the prefix string once for all updates in this notification.
+	prefixStr := c.pathToString(notification.Prefix)
+
+	ts := timestamp.Format(time.RFC3339)
+
+	for _, update := range notification.Update {
+		updatePathStr := c.pathToString(update.Path)
+		value := unwrapJSON(c.valueToString(update.Val))
+
+		// Full path = prefix path + update path (de-duplication key).
+		fullPath := prefixStr + updatePathStr
+
+		// Suppress if value is identical to last displayed value for this path.
+		if prev, seen := c.lastValues[fullPath]; seen && prev == value {
+			debugLog.Printf("  Suppressed unchanged value for %s = %s", fullPath, value)
+			continue
+		}
+		c.lastValues[fullPath] = value
+
+		// Label: leaf element name (last path element), falling back to full path.
+		label := leafLabel(update.Path, updatePathStr)
+
+		fmt.Printf("%-35s  %-40s  %s\n", ts, label, value)
+	}
+}
+
+// leafLabel extracts a human-readable label for a path.
+// It uses the last PathElem name if available, otherwise the raw path string.
+func leafLabel(path *gnmipb.Path, fallback string) string {
+	if path != nil && len(path.Elem) > 0 {
+		last := path.Elem[len(path.Elem)-1]
+		label := last.Name
+		// Append key values when the last element is a list node (e.g. interface[name=Eth12])
+		if len(last.Key) > 0 {
+			for k, v := range last.Key {
+				label += "[" + k + "=" + v + "]"
+			}
+		}
+		return label
+	}
+	if fallback != "" {
+		return fallback
+	}
+	return "<unknown>"
 }
 
 func (c *GNMIClient) pathToString(path *gnmipb.Path) string {
@@ -668,6 +748,45 @@ func (c *GNMIClient) pathToString(path *gnmipb.Path) string {
 		parts = append(parts, part)
 	}
 	return "/" + strings.Join(parts, "/")
+}
+
+// unwrapJSON takes a raw JSON string returned by valueToString and, if it is a
+// single-key object (e.g. {"openconfig-interfaces:in-octets":"1073758"}),
+// returns just the bare scalar value ("1073758").  Multi-key objects and
+// non-object values are returned unchanged.
+// This is used in compact (non-debug) mode so the output shows clean values
+// instead of wrapped JSON objects.
+func unwrapJSON(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if len(raw) == 0 || raw[0] != '{' {
+		return raw
+	}
+	var m map[string]interface{}
+	if err := json.Unmarshal([]byte(raw), &m); err != nil || len(m) != 1 {
+		return raw
+	}
+	for _, v := range m {
+		switch val := v.(type) {
+		case string:
+			return val
+		case float64:
+			// Avoid scientific notation for large integers.
+			if val == float64(int64(val)) {
+				return fmt.Sprintf("%d", int64(val))
+			}
+			return fmt.Sprintf("%g", val)
+		case bool:
+			return fmt.Sprintf("%v", val)
+		default:
+			// For nested objects/arrays, re-marshal compactly.
+			b, err := json.Marshal(v)
+			if err != nil {
+				return raw
+			}
+			return string(b)
+		}
+	}
+	return raw
 }
 
 func (c *GNMIClient) valueToString(value *gnmipb.TypedValue) string {
