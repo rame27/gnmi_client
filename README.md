@@ -286,4 +286,4 @@ All errors are logged to stderr with descriptive messages.
 
 ## License
 
-Same license as sonic-gnmi project.
+MIT
