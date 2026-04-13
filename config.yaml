@@ -3,17 +3,17 @@
 
 # Connection settings
 connection:
-  target: "localhost:50051"
+  target: "192.168.20.31:50051"
   timeout: 30s
   insecure: false
 
 # TLS configuration
 tls:
   enabled: true
-  ca_certificate: "certs/dsmsroot.cer"
-  client_certificate: "certs/streamingtelemetryserver.cer"
-  client_key: "certs/streamingtelemetryserver.key"
-  server_name: "sonic-switch"
+  ca_certificate: "certs/rootCA.crt"
+  client_certificate: "certs/client.crt"
+  client_key: "certs/client.key"
+  server_name: "mydomain.com"
   insecure_skip_verify: false
   # For testing without certificate validation, set insecure_skip_verify: true
 
@@ -64,9 +64,11 @@ paths:
     description: "Output discards counter for Ethernet0"
   
   # OpenConfig Interfaces - Interface state
-  - path: "/openconfig-interfaces:interfaces/interface[name=Ethernet0]/state/oper-status"
+  - path: "/interfaces/interface[name=Ethernet0]/state/oper-status"
+    origin: "openconfig-interfaces"
     description: "Operational status of Ethernet0"
-  - path: "/openconfig-interfaces:interfaces/interface[name=Ethernet0]/state/admin-status"
+  - path: "/interfaces/interface[name=Ethernet0]/state/admin-status"
+    origin: "openconfig-interfaces"
     description: "Administrative status of Ethernet0"
   
   # OpenConfig Platform - Component information
@@ -89,14 +91,17 @@ paths:
     description: "Fan component state"
   
   # OpenConfig System - System information
-  # Example: System queries without explicit origin (uses default)
   - path: "/system/state/hostname"
+    origin: "openconfig-system"
     description: "System hostname"
   - path: "/system/state/domain-name"
+    origin: "openconfig-system"
     description: "System domain name"
   - path: "/system/state/current-datetime"
+    origin: "openconfig-system"
     description: "System current datetime"
   - path: "/system/state/boot-datetime"
+    origin: "openconfig-system"
     description: "System boot datetime"
   
   # OpenConfig ACL - ACL counters (sample counters)
@@ -111,15 +116,19 @@ paths:
     description: "ACL matched octets counter"
   
   # OpenConfig LLDP - LLDP neighbor information
-  - path: "/openconfig-lldp:lldp/interfaces/interface[name=Ethernet0]/neighbors/neighbor/state/system-name"
+  - path: "/lldp/interfaces/interface[name=Ethernet0]/neighbors/neighbor/state/system-name"
+    origin: "openconfig-lldp"
     description: "LLDP neighbor system name for Ethernet0"
-  - path: "/openconfig-lldp:lldp/interfaces/interface[name=Ethernet0]/neighbors/neighbor/state/management-address"
+  - path: "/lldp/interfaces/interface[name=Ethernet0]/neighbors/neighbor/state/management-address"
+    origin: "openconfig-lldp"
     description: "LLDP neighbor management address for Ethernet0"
   
   # OpenConfig Sampling - sFlow configuration
-  - path: "/openconfig-sampling-sflow:sampling/sflow/interfaces/interface[name=Ethernet0]/state/enabled"
+  - path: "/sampling/sflow/interfaces/interface[name=Ethernet0]/state/enabled"
+    origin: "openconfig-sampling-sflow"
     description: "sFlow enabled status for Ethernet0"
-  - path: "/openconfig-sampling-sflow:sampling/sflow/interfaces/interface[name=Ethernet0]/state/sampling-rate"
+  - path: "/sampling/sflow/interfaces/interface[name=Ethernet0]/state/sampling-rate"
+    origin: "openconfig-sampling-sflow"
     description: "sFlow sampling rate for Ethernet0"
   
   # SONiC specific paths (if supported by translib)
@@ -137,5 +146,5 @@ paths:
 output:
   format: "json"  # Options: json, proto, text
   pretty_print: true
-  log_to_file: false
-  log_file: "/var/log/gnmi_client.log"
+  log_to_file: true
+  log_file: "/home/ramesh/projects/sonic-buildimage/src/gnmi_client/gnmi_client.log"
