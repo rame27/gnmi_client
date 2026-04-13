@@ -71,6 +71,156 @@ paths:
     stream_mode: "target_defined"
     description: "Inbound discards on Ethernet12 - server decides update strategy"
 
+  # ── Additional interface counters (SAMPLE, COUNTERS_DB) ─────────────────────
+  - path: "/interfaces/interface[name=Ethernet12]/state/counters/in-errors"
+    origin: "openconfig"
+    stream_mode: "sample"
+    description: "Inbound errors on Ethernet12"
+
+  - path: "/interfaces/interface[name=Ethernet12]/state/counters/out-errors"
+    origin: "openconfig"
+    stream_mode: "sample"
+    description: "Outbound errors on Ethernet12"
+
+  - path: "/interfaces/interface[name=Ethernet12]/state/counters/in-pkts"
+    origin: "openconfig"
+    stream_mode: "sample"
+    description: "Inbound packets on Ethernet12"
+
+  - path: "/interfaces/interface[name=Ethernet12]/state/counters/out-pkts"
+    origin: "openconfig"
+    stream_mode: "sample"
+    description: "Outbound packets on Ethernet12"
+
+  - path: "/interfaces/interface[name=Ethernet12]/state/counters/in-unicast-pkts"
+    origin: "openconfig"
+    stream_mode: "sample"
+    description: "Inbound unicast packets on Ethernet12"
+
+  - path: "/interfaces/interface[name=Ethernet12]/state/counters/out-unicast-pkts"
+    origin: "openconfig"
+    stream_mode: "sample"
+    description: "Outbound unicast packets on Ethernet12"
+
+  - path: "/interfaces/interface[name=Ethernet12]/state/counters/in-multicast-pkts"
+    origin: "openconfig"
+    stream_mode: "sample"
+    description: "Inbound multicast packets on Ethernet12"
+
+  - path: "/interfaces/interface[name=Ethernet12]/state/counters/out-multicast-pkts"
+    origin: "openconfig"
+    stream_mode: "sample"
+    description: "Outbound multicast packets on Ethernet12"
+
+  - path: "/interfaces/interface[name=Ethernet12]/state/counters/in-broadcast-pkts"
+    origin: "openconfig"
+    stream_mode: "sample"
+    description: "Inbound broadcast packets on Ethernet12"
+
+  - path: "/interfaces/interface[name=Ethernet12]/state/counters/out-broadcast-pkts"
+    origin: "openconfig"
+    stream_mode: "sample"
+    description: "Outbound broadcast packets on Ethernet12"
+
+  - path: "/interfaces/interface[name=Ethernet12]/state/counters/out-discards"
+    origin: "openconfig"
+    stream_mode: "sample"
+    description: "Outbound discards on Ethernet12"
+
+  # ── Ethernet physical-layer counters (may not be present on VPP platform) ──
+  - path: "/interfaces/interface[name=Ethernet12]/ethernet/state/counters/in-oversize-frames"
+    origin: "openconfig"
+    stream_mode: "sample"
+    description: "Oversized frames on Ethernet12 (physical-layer counter)"
+
+  - path: "/interfaces/interface[name=Ethernet12]/ethernet/state/counters/in-undersize-frames"
+    origin: "openconfig"
+    stream_mode: "sample"
+    description: "Undersized frames on Ethernet12 (physical-layer counter)"
+
+  - path: "/interfaces/interface[name=Ethernet12]/ethernet/state/counters/in-jabber-frames"
+    origin: "openconfig"
+    stream_mode: "sample"
+    description: "Jabber frames on Ethernet12 (physical-layer counter)"
+
+  - path: "/interfaces/interface[name=Ethernet12]/ethernet/state/counters/in-fragment-frames"
+    origin: "openconfig"
+    stream_mode: "sample"
+    description: "Fragment frames on Ethernet12 (physical-layer counter)"
+
+  # ── Interface config / state (ON_CHANGE, CONFIG_DB) ─────────────────────────
+  - path: "/interfaces/interface[name=Ethernet12]/config/enabled"
+    origin: "openconfig"
+    stream_mode: "on_change"
+    description: "Admin enabled flag for Ethernet12"
+
+  - path: "/interfaces/interface[name=Ethernet12]/config/description"
+    origin: "openconfig"
+    stream_mode: "on_change"
+    description: "Interface description for Ethernet12"
+
+  - path: "/interfaces/interface[name=Ethernet12]/state/admin-status"
+    origin: "openconfig"
+    stream_mode: "on_change"
+    description: "Admin status of Ethernet12"
+
+  # NOTE: state/oper-status is NOT found on this server (VPP platform).
+  # - path: "/interfaces/interface[name=Ethernet12]/state/oper-status"
+
+  # ── Ethernet interface config (ON_CHANGE, CONFIG_DB) ────────────────────────
+  - path: "/interfaces/interface[name=Ethernet12]/ethernet/config/port-speed"
+    origin: "openconfig"
+    stream_mode: "on_change"
+    description: "Port speed config for Ethernet12"
+
+  - path: "/interfaces/interface[name=Ethernet12]/ethernet/config/auto-negotiate"
+    origin: "openconfig"
+    stream_mode: "on_change"
+    description: "Auto-negotiate config for Ethernet12"
+
+  # ── System processes (wildcard pid=* NOT supported on this server) ───────────
+  # - path: "/system/processes/process[pid=*]/state/pid"
+  # - path: "/system/processes/process[pid=*]/state/name"
+  # - path: "/system/processes/process[pid=*]/state/cpu-utilization"
+  # - path: "/system/processes/process[pid=*]/state/memory-utilization"
+
+  # ── Platform / EEPROM (VPP: on_change invalid; use sample) ──────────────────
+  - path: "/components/component[name=System Eeprom]/state/serial-no"
+    origin: "openconfig"
+    stream_mode: "sample"
+    description: "System EEPROM serial number"
+
+  - path: "/components/component[name=System Eeprom]/state/part-no"
+    origin: "openconfig"
+    stream_mode: "sample"
+    description: "System EEPROM part number"
+
+  - path: "/components/component[name=System Eeprom]/state/mfg-name"
+    origin: "openconfig"
+    stream_mode: "sample"
+    description: "System EEPROM manufacturer name"
+
+  - path: "/components/component[name=System Eeprom]/state/hardware-version"
+    origin: "openconfig"
+    stream_mode: "sample"
+    description: "System EEPROM hardware version"
+
+  # ── sFlow config (ON_CHANGE, CONFIG_DB) ──────────────────────────────────────
+  - path: "/sampling/sflow/config/enabled"
+    origin: "openconfig"
+    stream_mode: "on_change"
+    description: "sFlow enabled flag"
+
+  - path: "/sampling/sflow/config/polling-interval"
+    origin: "openconfig"
+    stream_mode: "on_change"
+    description: "sFlow polling interval"
+
+  - path: "/sampling/sflow/config/agent"
+    origin: "openconfig"
+    stream_mode: "on_change"
+    description: "sFlow agent address"
+
 # Output configuration
 output:
   format: "json"  # Options: json, proto, text
