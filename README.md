@@ -42,6 +42,7 @@ Available options:
 - `-mode`: Subscription mode override (`once`, `poll`, `stream`)
 - `-target`: Target address override (e.g., `localhost:50051`)
 - `-timeout`: Connection timeout (default: `30s`)
+- `-d`: Enable debug logging (verbose output with timestamps)
 
 ### Examples
 
@@ -63,6 +64,23 @@ Available options:
 #### Connect to Remote Target
 ```bash
 ./gnmi_client -config config.yaml -target 192.168.1.1:50051
+```
+
+#### Enable Debug Logging
+```bash
+./gnmi_client -config config.yaml -d -mode stream
+```
+
+#### Debug with Insecure TLS (Testing)
+```bash
+# Edit config.yaml to set insecure_skip_verify: true
+./gnmi_client -config config.yaml -d -mode once
+```
+
+#### Query Specific Path with Origin
+```bash
+# Edit config.yaml to add paths with origin and target
+./gnmi_client -config config.yaml -d -mode once
 ```
 
 ## Configuration
@@ -103,14 +121,43 @@ stream:
 
 Paths are based on YANG models from `src/sonic-mgmt-common/models/yang`:
 
-#### OpenConfig Interfaces (Sample Counters)
+#### Path with Explicit Origin
 ```yaml
 paths:
-  - path: "/openconfig-interfaces:interfaces/interface[name=Ethernet0]/state/counters/in-octets"
+  - path: "/interfaces/interface[name=Ethernet0]/state/counters/in-octets"
+    origin: "openconfig"
+    description: "Input octets counter with explicit origin"
+```
+
+#### Path with Origin and Target
+```yaml
+paths:
+  - path: "/components/component[name=Chassis]/state"
+    origin: "openconfig"
+    target: "PLATFORM"
+    description: "Chassis state with origin and target"
+```
+
+#### SONiC Native Path
+```yaml
+paths:
+  - path: "/acl/ACL_TABLE/ACL_TABLE_LIST[name=ACL_INGRESS]"
+    origin: "sonic"
+    target: "CONFIG_DB"
+    description: "SONiC ACL table from CONFIG_DB"
+```
+
+#### Sample Counters (OpenConfig Interfaces)
+```yaml
+paths:
+  - path: "/interfaces/interface[name=Ethernet0]/state/counters/in-octets"
+    origin: "openconfig"
     description: "Input octets counter for Ethernet0"
-  - path: "/openconfig-interfaces:interfaces/interface[name=Ethernet0]/state/counters/in-pkts"
+  - path: "/interfaces/interface[name=Ethernet0]/state/counters/in-pkts"
+    origin: "openconfig"
     description: "Input packets counter for Ethernet0"
-  - path: "/openconfig-interfaces:interfaces/interface[name=Ethernet0]/state/counters/in-errors"
+  - path: "/interfaces/interface[name=Ethernet0]/state/counters/in-errors"
+    origin: "openconfig"
     description: "Input errors counter for Ethernet0"
 ```
 
