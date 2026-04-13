@@ -1,0 +1,140 @@
+# gNMI Client Configuration
+# This file defines the gNMI client connection parameters and subscription paths
+
+# Connection settings
+connection:
+  target: "localhost:50051"
+  timeout: 30s
+  insecure: false
+
+# TLS configuration
+tls:
+  enabled: true
+  ca_certificate: "/etc/sonic/telemetry/ca.crt"
+  client_certificate: "/etc/sonic/telemetry/client.crt"
+  client_key: "/etc/sonic/telemetry/client.key"
+  server_name: "sonic-switch"
+  insecure_skip_verify: false
+
+# Authentication (optional, for JWT-based auth)
+authentication:
+  username: ""
+  password: ""
+
+# Subscription mode: once, poll, or stream
+subscription:
+  mode: "stream"  # Options: once, poll, stream
+  poll_interval: 10s  # Used when mode is "poll"
+  
+# Streaming options
+stream:
+  sample_interval: 10s  # Minimum 1s
+  suppress_redundant: false
+  heartbeat_interval: 0s
+
+# gNMI paths to subscribe to
+# Based on SONiC YANG models from src/sonic-mgmt-common/models/yang
+paths:
+  # OpenConfig Interfaces - Interface counters (sample counters)
+  # Example with explicit origin (openconfig)
+  - path: "/interfaces/interface[name=Ethernet0]/state/counters/in-octets"
+    origin: "openconfig"
+    description: "Input octets counter for Ethernet0 (with origin)"
+  - path: "/interfaces/interface[name=Ethernet0]/state/counters/out-octets"
+    origin: "openconfig"
+    description: "Output octets counter for Ethernet0"
+  - path: "/interfaces/interface[name=Ethernet0]/state/counters/in-pkts"
+    origin: "openconfig"
+    description: "Input packets counter for Ethernet0"
+  - path: "/interfaces/interface[name=Ethernet0]/state/counters/out-pkts"
+    origin: "openconfig"
+    description: "Output packets counter for Ethernet0"
+  - path: "/interfaces/interface[name=Ethernet0]/state/counters/in-errors"
+    origin: "openconfig"
+    description: "Input errors counter for Ethernet0"
+  - path: "/interfaces/interface[name=Ethernet0]/state/counters/out-errors"
+    origin: "openconfig"
+    description: "Output errors counter for Ethernet0"
+  - path: "/interfaces/interface[name=Ethernet0]/state/counters/in-discards"
+    origin: "openconfig"
+    description: "Input discards counter for Ethernet0"
+  - path: "/interfaces/interface[name=Ethernet0]/state/counters/out-discards"
+    origin: "openconfig"
+    description: "Output discards counter for Ethernet0"
+  
+  # OpenConfig Interfaces - Interface state
+  - path: "/openconfig-interfaces:interfaces/interface[name=Ethernet0]/state/oper-status"
+    description: "Operational status of Ethernet0"
+  - path: "/openconfig-interfaces:interfaces/interface[name=Ethernet0]/state/admin-status"
+    description: "Administrative status of Ethernet0"
+  
+  # OpenConfig Platform - Component information
+  # Example with explicit target for platform queries
+  - path: "/components/component[name=Chassis]/state"
+    origin: "openconfig"
+    target: "PLATFORM"
+    description: "Chassis component state (with target)"
+  - path: "/components/component[name=Linecard]/state"
+    origin: "openconfig"
+    target: "PLATFORM"
+    description: "Linecard component state"
+  - path: "/components/component[name=PowerSupply]/state"
+    origin: "openconfig"
+    target: "PLATFORM"
+    description: "Power supply component state"
+  - path: "/components/component[name=Fan]/state"
+    origin: "openconfig"
+    target: "PLATFORM"
+    description: "Fan component state"
+  
+  # OpenConfig System - System information
+  # Example: System queries without explicit origin (uses default)
+  - path: "/system/state/hostname"
+    description: "System hostname"
+  - path: "/system/state/domain-name"
+    description: "System domain name"
+  - path: "/system/state/current-datetime"
+    description: "System current datetime"
+  - path: "/system/state/boot-datetime"
+    description: "System boot datetime"
+  
+  # OpenConfig ACL - ACL counters (sample counters)
+  # Example: ACL with explicit origin and target
+  - path: "/acl/acl-sets/acl-set[name=ACL_INGRESS,type=IP]/acl-entries/acl-entry[sequence=1]/state/matched-pkts"
+    origin: "openconfig"
+    target: "ACL"
+    description: "ACL matched packets counter (with origin and target)"
+  - path: "/acl/acl-sets/acl-set[name=ACL_INGRESS,type=IP]/acl-entries/acl-entry[sequence=1]/state/matched-octets"
+    origin: "openconfig"
+    target: "ACL"
+    description: "ACL matched octets counter"
+  
+  # OpenConfig LLDP - LLDP neighbor information
+  - path: "/openconfig-lldp:lldp/interfaces/interface[name=Ethernet0]/neighbors/neighbor/state/system-name"
+    description: "LLDP neighbor system name for Ethernet0"
+  - path: "/openconfig-lldp:lldp/interfaces/interface[name=Ethernet0]/neighbors/neighbor/state/management-address"
+    description: "LLDP neighbor management address for Ethernet0"
+  
+  # OpenConfig Sampling - sFlow configuration
+  - path: "/openconfig-sampling-sflow:sampling/sflow/interfaces/interface[name=Ethernet0]/state/enabled"
+    description: "sFlow enabled status for Ethernet0"
+  - path: "/openconfig-sampling-sflow:sampling/sflow/interfaces/interface[name=Ethernet0]/state/sampling-rate"
+    description: "sFlow sampling rate for Ethernet0"
+  
+  # SONiC specific paths (if supported by translib)
+  # Example: SONiC native YANG with sonic origin
+  - path: "/acl/ACL_TABLE/ACL_TABLE_LIST[name=ACL_INGRESS]"
+    origin: "sonic"
+    target: "CONFIG_DB"
+    description: "SONiC ACL table configuration (sonic origin)"
+  - path: "/interfaces/interface[name=Ethernet0]"
+    origin: "sonic"
+    target: "CONFIG_DB"
+    description: "SONiC interface configuration"
+
+# Output configuration
+output:
+  format: "json"  # Options: json, proto, text
+  pretty_print: true
+  log_to_file: false
+  log_file: "/var/log/gnmi_client.log"
