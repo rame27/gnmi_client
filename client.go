@@ -84,11 +84,29 @@ type StreamConfig struct {
 	HeartbeatInterval string `yaml:"heartbeat_interval"`
 }
 
+// PathStreamMode controls how a single path is reported in a STREAM subscription.
+// Valid values: "target_defined" (default), "on_change", "sample".
+// Ignored for ONCE and POLL subscription modes.
+type PathStreamMode int
+
+const (
+	PathStreamTargetDefined PathStreamMode = iota
+	PathStreamOnChange
+	PathStreamSample
+)
+
 type PathConfig struct {
 	Path        string `yaml:"path"`
 	Description string `yaml:"description"`
 	Origin      string `yaml:"origin,omitempty"`
 	Target      string `yaml:"target,omitempty"`
+	// StreamMode controls how updates are reported for this path in stream mode.
+	// Options: "target_defined" (default), "on_change", "sample".
+	// When set to "sample", SampleInterval overrides the global stream.sample_interval.
+	StreamMode string `yaml:"stream_mode,omitempty"`
+	// SampleInterval overrides the global stream.sample_interval for this path.
+	// Only meaningful when stream_mode is "sample". Example: "30s", "60s".
+	SampleInterval string `yaml:"sample_interval,omitempty"`
 }
 
 type OutputConfig struct {
@@ -263,7 +281,27 @@ func (c *GNMIClient) Subscribe(ctx context.Context) error {
 	}
 }
 
+// parsePathStreamMode converts a string stream_mode value to the gNMI
+// SubscriptionMode enum. Defaults to TARGET_DEFINED for empty/unknown values.
+func parsePathStreamMode(s string) gnmipb.SubscriptionMode {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "on_change":
+		return gnmipb.SubscriptionMode_ON_CHANGE
+	case "sample":
+		return gnmipb.SubscriptionMode_SAMPLE
+	default:
+		// "target_defined", "", or anything unrecognised
+		return gnmipb.SubscriptionMode_TARGET_DEFINED
+	}
+}
+
 func (c *GNMIClient) buildSubscriptionList() (*gnmipb.SubscriptionList, error) {
+	// Parse the global sample interval once; used as fallback for per-path overrides.
+	globalInterval, err := time.ParseDuration(c.config.Stream.SampleInterval)
+	if err != nil {
+		globalInterval = 30 * time.Second
+	}
+
 	subscriptions := make([]*gnmipb.Subscription, 0, len(c.config.Paths))
 
 	for _, pathConfig := range c.config.Paths {
@@ -273,37 +311,64 @@ func (c *GNMIClient) buildSubscriptionList() (*gnmipb.SubscriptionList, error) {
 			return nil, fmt.Errorf("failed to parse path %s: %v", pathConfig.Path, err)
 		}
 
-		debugLog.Printf("Added subscription path: %s (origin: %s, target: %s)", pathConfig.Path, pathConfig.Origin, pathConfig.Target)
-
 		subscription := &gnmipb.Subscription{
 			Path: path,
 		}
 
 		if c.mode == Stream {
-			interval, err := time.ParseDuration(c.config.Stream.SampleInterval)
-			if err != nil {
-				interval = 10 * time.Second
+			streamMode := parsePathStreamMode(pathConfig.StreamMode)
+			subscription.Mode = streamMode
+
+			switch streamMode {
+			case gnmipb.SubscriptionMode_SAMPLE:
+				// Use per-path sample_interval if set, otherwise fall back to global.
+				interval := globalInterval
+				if pathConfig.SampleInterval != "" {
+					if d, err := time.ParseDuration(pathConfig.SampleInterval); err == nil {
+						interval = d
+					} else {
+						debugLog.Printf("Invalid sample_interval %q for path %s, using global %v: %v",
+							pathConfig.SampleInterval, pathConfig.Path, globalInterval, err)
+					}
+				}
+				subscription.SampleInterval = uint64(interval.Nanoseconds())
+				subscription.SuppressRedundant = c.config.Stream.SuppressRedundant
+				debugLog.Printf("Added path: %s  stream_mode=sample  interval=%v  suppress_redundant=%v",
+					pathConfig.Path, interval, c.config.Stream.SuppressRedundant)
+
+			case gnmipb.SubscriptionMode_ON_CHANGE:
+				// HeartbeatInterval keeps the subscription alive even when no changes occur.
+				if c.config.Stream.HeartbeatInterval != "" {
+					if d, err := time.ParseDuration(c.config.Stream.HeartbeatInterval); err == nil && d > 0 {
+						subscription.HeartbeatInterval = uint64(d.Nanoseconds())
+					}
+				}
+				debugLog.Printf("Added path: %s  stream_mode=on_change  heartbeat=%s",
+					pathConfig.Path, c.config.Stream.HeartbeatInterval)
+
+			default: // TARGET_DEFINED
+				debugLog.Printf("Added path: %s  stream_mode=target_defined", pathConfig.Path)
 			}
-			subscription.SampleInterval = uint64(interval.Nanoseconds())
-			subscription.SuppressRedundant = c.config.Stream.SuppressRedundant
+		} else {
+			debugLog.Printf("Added path: %s (origin: %s, target: %s)", pathConfig.Path, pathConfig.Origin, pathConfig.Target)
 		}
 
 		subscriptions = append(subscriptions, subscription)
 	}
 
-	mode := gnmipb.SubscriptionList_STREAM
+	listMode := gnmipb.SubscriptionList_STREAM
 	switch c.mode {
 	case Once:
-		mode = gnmipb.SubscriptionList_ONCE
+		listMode = gnmipb.SubscriptionList_ONCE
 	case Poll:
-		mode = gnmipb.SubscriptionList_POLL
+		listMode = gnmipb.SubscriptionList_POLL
 	case Stream:
-		mode = gnmipb.SubscriptionList_STREAM
+		listMode = gnmipb.SubscriptionList_STREAM
 	}
 
 	return &gnmipb.SubscriptionList{
 		Subscription: subscriptions,
-		Mode:         mode,
+		Mode:         listMode,
 	}, nil
 }
 

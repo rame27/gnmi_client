@@ -26,21 +26,50 @@ authentication:
 subscription:
   mode: "stream"  # Options: once, poll, stream
   poll_interval: 10s  # Used when mode is "poll"
-  
-# Streaming options
+
+# Streaming options (global defaults, can be overridden per-path)
 stream:
-  sample_interval: 30s  # Server minimum is 30s
+  sample_interval: 30s   # Server minimum is 30s; used when stream_mode is "sample"
   suppress_redundant: false
-  heartbeat_interval: 3s
+  heartbeat_interval: 0s  # Used when stream_mode is "on_change"; 0 = disabled
 
 # gNMI paths to subscribe to
-# Based on SONiC YANG models from src/sonic-mgmt-common/models/yang
+# Each path can carry an optional stream_mode field (applies only when
+# subscription.mode = "stream"):
+#
+#   stream_mode: "sample"         - server sends updates at sample_interval
+#   stream_mode: "on_change"      - server sends updates only when value changes
+#   stream_mode: "target_defined" - server decides (default when omitted)
+#
+# A per-path sample_interval (e.g. "60s") overrides the global
+# stream.sample_interval for that path when stream_mode is "sample".
 paths:
-  # OpenConfig Interfaces - Interface counters (sample counters)
-  # Example with explicit origin (openconfig)
+  # SAMPLE: inbound octets at global 30s interval
   - path: "/interfaces/interface[name=Ethernet12]/state/counters/in-octets"
     origin: "openconfig"
-    description: "Input octets counter for Ethernet0 (with origin)"
+    stream_mode: "sample"
+    description: "Inbound octets on Ethernet12 - sampled every 30s"
+
+  # SAMPLE with per-path override: outbound octets at 60s
+  - path: "/interfaces/interface[name=Ethernet12]/state/counters/out-octets"
+    origin: "openconfig"
+    stream_mode: "sample"
+    sample_interval: "60s"
+    description: "Outbound octets on Ethernet12 - sampled every 60s"
+
+  # ON_CHANGE: MTU config (CONFIG_DB-backed) - delivered only when value changes.
+  # Note: on_change is only supported for CONFIG_DB paths; counter/state paths
+  # (COUNTERS_DB) will be rejected by the server with InvalidArgument.
+  - path: "/interfaces/interface[name=Ethernet12]/config/mtu"
+    origin: "openconfig"
+    stream_mode: "on_change"
+    description: "Ethernet12 MTU config - delivered only on change"
+
+  # TARGET_DEFINED: let the server decide sample vs on_change
+  - path: "/interfaces/interface[name=Ethernet12]/state/counters/in-discards"
+    origin: "openconfig"
+    stream_mode: "target_defined"
+    description: "Inbound discards on Ethernet12 - server decides update strategy"
 
 # Output configuration
 output:
