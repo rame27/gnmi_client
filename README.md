@@ -73,7 +73,26 @@ Available options:
 
 #### Debug with Insecure TLS (Testing)
 ```bash
-# Edit config.yaml to set insecure_skip_verify: true
+# Option 1: Use test config without TLS
+./gnmi_client -config config-test.yaml -d -mode once
+
+# Option 2: Edit config.yaml to set insecure_skip_verify: true
+./gnmi_client -config config.yaml -d -mode once
+
+# Option 3: Disable TLS entirely
+./gnmi_client -config config.yaml -d -mode once
+# (Set tls.enabled: false in config.yaml)
+```
+
+#### Running on SONiC Switch
+```bash
+# Copy client to switch
+scp gnmi_client admin@sonic-switch:/home/admin/
+
+# Copy certificates if needed (for production)
+scp -r /etc/sonic/telemetry/ admin@sonic-switch:/tmp/telemetry/
+
+# Run on switch with proper certificates
 ./gnmi_client -config config.yaml -d -mode once
 ```
 
@@ -104,6 +123,8 @@ tls:
   server_name: "sonic-switch"
   insecure_skip_verify: false
 ```
+
+**Note:** Certificate files must exist on the system where the client runs. On SONiC switches, certificates are typically at `/etc/sonic/telemetry/`. For local testing without certificates, use `config-test.yaml` or set `enabled: false`.
 
 ### Subscription Settings
 ```yaml

@@ -1,0 +1,35 @@
+# Test Configuration for Local Testing (No TLS)
+# Use this config when testing without certificates
+
+connection:
+  target: "localhost:50051"
+  timeout: 30s
+
+# TLS disabled for local testing
+tls:
+  enabled: false
+
+authentication:
+  username: ""
+  password: ""
+
+subscription:
+  mode: "once"
+  poll_interval: 10s
+
+stream:
+  sample_interval: 10s
+  suppress_redundant: false
+  heartbeat_interval: 0s
+
+# Test with a single path first
+paths:
+  - path: "/interfaces/interface[name=Ethernet12]/state/counters/in-octets"
+    origin: "openconfig"
+    description: "Input octets counter for Ethernet12"
+
+output:
+  format: "json"
+  pretty_print: true
+  log_to_file: false
+  log_file: "/var/log/gnmi_client.log"

@@ -10,11 +10,12 @@ connection:
 # TLS configuration
 tls:
   enabled: true
-  ca_certificate: "/etc/sonic/telemetry/ca.crt"
-  client_certificate: "/etc/sonic/telemetry/client.crt"
-  client_key: "/etc/sonic/telemetry/client.key"
+  ca_certificate: "certs/dsmsroot.cer"
+  client_certificate: "certs/streamingtelemetryserver.cer"
+  client_key: "certs/streamingtelemetryserver.key"
   server_name: "sonic-switch"
   insecure_skip_verify: false
+  # For testing without certificate validation, set insecure_skip_verify: true
 
 # Authentication (optional, for JWT-based auth)
 authentication:

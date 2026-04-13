@@ -186,30 +186,45 @@ func (c *GNMIClient) isInsecure() bool {
 }
 
 func (c *GNMIClient) loadTLSConfig() (*tls.Config, error) {
+	debugLog.Printf("Loading TLS configuration")
+
 	tlsConfig := &tls.Config{
 		ServerName:         c.config.TLS.ServerName,
 		InsecureSkipVerify: c.config.TLS.InsecureSkipVerify,
 	}
 
 	if c.config.TLS.CACertificate != "" {
+		debugLog.Printf("Reading CA certificate from: %s", c.config.TLS.CACertificate)
 		caCert, err := os.ReadFile(c.config.TLS.CACertificate)
 		if err != nil {
+			debugLog.Printf("Failed to read CA certificate: %v", err)
 			return nil, fmt.Errorf("failed to read CA certificate: %v", err)
 		}
 		caCertPool := x509.NewCertPool()
 		if !caCertPool.AppendCertsFromPEM(caCert) {
+			debugLog.Printf("Failed to parse CA certificate")
 			return nil, fmt.Errorf("failed to parse CA certificate")
 		}
 		tlsConfig.RootCAs = caCertPool
+		debugLog.Printf("CA certificate loaded successfully")
+	} else {
+		debugLog.Printf("No CA certificate configured, using system roots")
 	}
 
 	if c.config.TLS.ClientCertificate != "" && c.config.TLS.ClientKey != "" {
+		debugLog.Printf("Loading client certificate from: %s", c.config.TLS.ClientCertificate)
+		debugLog.Printf("Loading client key from: %s", c.config.TLS.ClientKey)
 		cert, err := tls.LoadX509KeyPair(c.config.TLS.ClientCertificate, c.config.TLS.ClientKey)
 		if err != nil {
+			debugLog.Printf("Failed to load client certificate/key: %v", err)
 			return nil, fmt.Errorf("failed to load client certificate/key: %v", err)
 		}
 		tlsConfig.Certificates = []tls.Certificate{cert}
+		debugLog.Printf("Client certificate loaded successfully")
 	}
+
+	debugLog.Printf("TLS config: ServerName=%s, InsecureSkipVerify=%v, RootCAs=%v, Certificates=%d",
+		tlsConfig.ServerName, tlsConfig.InsecureSkipVerify, tlsConfig.RootCAs != nil, len(tlsConfig.Certificates))
 
 	return tlsConfig, nil
 }
@@ -358,16 +373,25 @@ func (c *GNMIClient) subscribeOnce(ctx context.Context, subscriptionList *gnmipb
 		paths = append(paths, sub.Path)
 	}
 
-	debugLog.Printf("Sending gNMI Get request")
+	debugLog.Printf("Sending gNMI Get request with %d paths", len(paths))
+	for i, p := range paths {
+		debugLog.Printf("  Path[%d]: origin=%s, target=%s, elems=%v", i, p.Origin, p.Target, p.Elem)
+	}
+
+	debugLog.Printf("Calling gNMI Get RPC...")
+	startTime := time.Now()
 	response, err := c.client.Get(ctx, &gnmipb.GetRequest{
 		Path: paths,
 	})
+	elapsed := time.Since(startTime)
+
 	if err != nil {
-		debugLog.Printf("gNMI Get failed: %v", err)
+		debugLog.Printf("gNMI Get failed after %v: %v", elapsed, err)
 		return fmt.Errorf("gNMI Get failed: %v", err)
 	}
 
-	debugLog.Printf("Received %d notifications", len(response.Notification))
+	debugLog.Printf("gNMI Get succeeded after %v", elapsed)
+	debugLog.Printf("Received response with %d notifications", len(response.Notification))
 
 	for _, notification := range response.Notification {
 		if err := c.printNotification(notification); err != nil {
@@ -503,13 +527,15 @@ func (c *GNMIClient) withAuthentication(ctx context.Context) context.Context {
 
 func (c *GNMIClient) printNotification(notification *gnmipb.Notification) error {
 	timestamp := time.Unix(0, notification.Timestamp)
-	debugLog.Printf("Processing notification with timestamp: %d", notification.Timestamp)
+	debugLog.Printf("Processing notification - timestamp: %d (%s), prefix: %v, %d updates",
+		notification.Timestamp, timestamp.Format(time.RFC3339), notification.Prefix, len(notification.Update))
+
 	fmt.Printf("\n=== Notification at %s ===\n", timestamp.Format(time.RFC3339))
 
-	for _, update := range notification.Update {
+	for i, update := range notification.Update {
 		pathStr := c.pathToString(update.Path)
 		value := c.valueToString(update.Val)
-		debugLog.Printf("Update - Path: %s, Value: %s", pathStr, value)
+		debugLog.Printf("  Update[%d]: path=%s, value_type=%T, value=%s", i, pathStr, update.Val, value)
 		fmt.Printf("Path: %s\n", pathStr)
 		fmt.Printf("Value: %s\n", value)
 		fmt.Println("---")
