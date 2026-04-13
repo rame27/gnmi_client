@@ -379,14 +379,31 @@ func (c *GNMIClient) subscribeOnce(ctx context.Context, subscriptionList *gnmipb
 	}
 
 	debugLog.Printf("Calling gNMI Get RPC...")
+	debugLog.Printf("Context has metadata: %v", ctx.Value("gRPC-Key"))
+
 	startTime := time.Now()
-	response, err := c.client.Get(ctx, &gnmipb.GetRequest{
-		Path: paths,
-	})
+
+	// Create a GetRequest directly to see more details
+	req := &gnmipb.GetRequest{
+		Path:     paths,
+		Type:     gnmipb.GetRequest_ALL,
+		Encoding: gnmipb.Encoding_JSON,
+	}
+	debugLog.Printf("GetRequest: type=%v, encoding=%v, path_count=%d", req.Type, req.Encoding, len(req.Path))
+
+	response, err := c.client.Get(ctx, req)
 	elapsed := time.Since(startTime)
 
 	if err != nil {
 		debugLog.Printf("gNMI Get failed after %v: %v", elapsed, err)
+
+		// Check if it's a context cancellation or deadline
+		select {
+		case <-ctx.Done():
+			debugLog.Printf("Context done: %v", ctx.Err())
+		default:
+		}
+
 		return fmt.Errorf("gNMI Get failed: %v", err)
 	}
 
@@ -410,9 +427,6 @@ func (c *GNMIClient) subscribePoll(ctx context.Context, subscriptionList *gnmipb
 
 	debugLog.Printf("Starting POLL subscription with interval: %v", interval)
 
-	c.pollTicker = time.NewTicker(interval)
-	defer c.pollTicker.Stop()
-
 	ctx = c.withAuthentication(ctx)
 
 	debugLog.Printf("Opening gNMI Subscribe stream for poll mode")
@@ -422,11 +436,28 @@ func (c *GNMIClient) subscribePoll(ctx context.Context, subscriptionList *gnmipb
 		return fmt.Errorf("gNMI Subscribe failed: %v", err)
 	}
 
+	// gNMI poll protocol: first send a SubscriptionList with mode=POLL,
+	// then send Poll{} messages to trigger each data collection.
+	subscriptionList.Mode = gnmipb.SubscriptionList_POLL
+	initRequest := &gnmipb.SubscribeRequest{
+		Request: &gnmipb.SubscribeRequest_Subscribe{
+			Subscribe: subscriptionList,
+		},
+	}
+	debugLog.Printf("Sending initial SubscriptionList for poll mode")
+	if err := subscribeClient.Send(initRequest); err != nil {
+		debugLog.Printf("Failed to send initial subscription list: %v", err)
+		return fmt.Errorf("failed to send initial subscription list: %v", err)
+	}
+
 	pollRequest := &gnmipb.SubscribeRequest{
 		Request: &gnmipb.SubscribeRequest_Poll{
 			Poll: &gnmipb.Poll{},
 		},
 	}
+
+	c.pollTicker = time.NewTicker(interval)
+	defer c.pollTicker.Stop()
 
 	for pollCount := 0; ; pollCount++ {
 		select {
@@ -440,19 +471,27 @@ func (c *GNMIClient) subscribePoll(ctx context.Context, subscriptionList *gnmipb
 				return fmt.Errorf("failed to send poll request: %v", err)
 			}
 
-			response, err := subscribeClient.Recv()
-			if err != nil {
-				if err == io.EOF {
-					debugLog.Printf("Received EOF, ending poll subscription")
-					return nil
+			// Drain all responses until sync_response
+			for {
+				response, err := subscribeClient.Recv()
+				if err != nil {
+					if err == io.EOF {
+						debugLog.Printf("Received EOF, ending poll subscription")
+						return nil
+					}
+					debugLog.Printf("Failed to receive poll response: %v", err)
+					return fmt.Errorf("failed to receive poll response: %v", err)
 				}
-				debugLog.Printf("Failed to receive poll response: %v", err)
-				return fmt.Errorf("failed to receive poll response: %v", err)
-			}
 
-			if update := response.GetUpdate(); update != nil {
-				if err := c.printNotification(update); err != nil {
-					log.Printf("ERROR: Failed to print notification: %v", err)
+				if update := response.GetUpdate(); update != nil {
+					if err := c.printNotification(update); err != nil {
+						log.Printf("ERROR: Failed to print notification: %v", err)
+					}
+				}
+
+				if response.GetSyncResponse() {
+					debugLog.Printf("Poll #%d sync_response received", pollCount+1)
+					break
 				}
 			}
 		}
@@ -516,12 +555,14 @@ func (c *GNMIClient) subscribeStream(ctx context.Context, subscriptionList *gnmi
 
 func (c *GNMIClient) withAuthentication(ctx context.Context) context.Context {
 	if c.config.Authentication.Username != "" && c.config.Authentication.Password != "" {
+		debugLog.Printf("Sending authentication: username=%s, password len=%d", c.config.Authentication.Username, len(c.config.Authentication.Password))
 		md := metadata.Pairs(
 			"username", c.config.Authentication.Username,
 			"password", c.config.Authentication.Password,
 		)
 		return metadata.NewOutgoingContext(ctx, md)
 	}
+	debugLog.Printf("No authentication configured")
 	return ctx
 }
 
