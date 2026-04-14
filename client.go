@@ -9,6 +9,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -53,6 +54,7 @@ type GNMIConfig struct {
 	Stream         StreamConfig         `yaml:"stream"`
 	Paths          []PathConfig         `yaml:"paths"`
 	Output         OutputConfig         `yaml:"output"`
+	Set            *SetConfig           `yaml:"set,omitempty"`
 }
 
 type ConnectionConfig struct {
@@ -115,6 +117,33 @@ type OutputConfig struct {
 	PrettyPrint bool   `yaml:"pretty_print"`
 	LogToFile   bool   `yaml:"log_to_file"`
 	LogFile     string `yaml:"log_file"`
+}
+
+type SetConfig struct {
+	Operation string       `yaml:"operation"`
+	Updates   []SetUpdate  `yaml:"updates,omitempty"`
+	Deletes   []SetDelete  `yaml:"deletes,omitempty"`
+	Replaces  []SetReplace `yaml:"replaces,omitempty"`
+}
+
+type SetUpdate struct {
+	Path   string `yaml:"path"`
+	Value  string `yaml:"value"`
+	Origin string `yaml:"origin,omitempty"`
+	Target string `yaml:"target,omitempty"`
+}
+
+type SetDelete struct {
+	Path   string `yaml:"path"`
+	Origin string `yaml:"origin,omitempty"`
+	Target string `yaml:"target,omitempty"`
+}
+
+type SetReplace struct {
+	Path   string `yaml:"path"`
+	Value  string `yaml:"value"`
+	Origin string `yaml:"origin,omitempty"`
+	Target string `yaml:"target,omitempty"`
 }
 
 type GNMIClient struct {
@@ -822,4 +851,169 @@ func (c *GNMIClient) valueToString(value *gnmipb.TypedValue) string {
 	default:
 		return fmt.Sprintf("<unknown type: %T>", v)
 	}
+}
+
+func (c *GNMIClient) Set(ctx context.Context) error {
+	if c.config.Set == nil {
+		return fmt.Errorf("no set configuration provided")
+	}
+
+	ctx = c.withAuthentication(ctx)
+
+	req := &gnmipb.SetRequest{}
+
+	for _, update := range c.config.Set.Updates {
+		path, val, err := c.buildPathAndValue(update.Path, update.Origin, update.Target, update.Value)
+		if err != nil {
+			return fmt.Errorf("failed to build update for path %s: %v", update.Path, err)
+		}
+		req.Update = append(req.Update, &gnmipb.Update{Path: path, Val: val})
+		debugLog.Printf("Added update: path=%s, value=%s", update.Path, update.Value)
+	}
+
+	for _, replace := range c.config.Set.Replaces {
+		path, val, err := c.buildPathAndValue(replace.Path, replace.Origin, replace.Target, replace.Value)
+		if err != nil {
+			return fmt.Errorf("failed to build replace for path %s: %v", replace.Path, err)
+		}
+		req.Replace = append(req.Replace, &gnmipb.Update{Path: path, Val: val})
+		debugLog.Printf("Added replace: path=%s, value=%s", replace.Path, replace.Value)
+	}
+
+	for _, del := range c.config.Set.Deletes {
+		path, err := c.parsePath(del.Path, del.Origin, del.Target)
+		if err != nil {
+			return fmt.Errorf("failed to parse delete path %s: %v", del.Path, err)
+		}
+		req.Delete = append(req.Delete, path)
+		debugLog.Printf("Added delete: path=%s", del.Path)
+	}
+
+	if len(req.Update) == 0 && len(req.Replace) == 0 && len(req.Delete) == 0 {
+		return fmt.Errorf("no updates, replaces, or deletes specified in set configuration")
+	}
+
+	debugLog.Printf("Sending SetRequest with %d updates, %d replaces, %d deletes",
+		len(req.Update), len(req.Replace), len(req.Delete))
+
+	response, err := c.client.Set(ctx, req)
+	if err != nil {
+		debugLog.Printf("SetRequest failed: %v", err)
+		return fmt.Errorf("SetRequest failed: %v", err)
+	}
+
+	debugLog.Printf("SetRequest succeeded")
+	c.printSetResponse(response)
+
+	return nil
+}
+
+// buildPathAndValue splits the path into a parent path + leaf name and wraps
+// the scalar value in a {"<leaf>": <value>} JSON envelope — the format expected
+// by the SONiC translib request_binder for OpenConfig leaf nodes.
+// If the value string is already a JSON object/array it is used as-is (no wrapping).
+func (c *GNMIClient) buildPathAndValue(pathStr, origin, target, valueStr string) (*gnmipb.Path, *gnmipb.TypedValue, error) {
+	// If the value is already a JSON object/array, use the full path unchanged.
+	trimmed := strings.TrimSpace(valueStr)
+	if strings.HasPrefix(trimmed, "{") || strings.HasPrefix(trimmed, "[") {
+		path, err := c.parsePath(pathStr, origin, target)
+		if err != nil {
+			return nil, nil, err
+		}
+		val := &gnmipb.TypedValue{
+			Value: &gnmipb.TypedValue_JsonIetfVal{JsonIetfVal: []byte(trimmed)},
+		}
+		return path, val, nil
+	}
+
+	// Split path into parent + leaf.
+	// e.g. "/interfaces/interface[name=Eth12]/config/mtu"
+	//   -> parent = "/interfaces/interface[name=Eth12]/config"
+	//   -> leaf   = "mtu"
+	slashIdx := strings.LastIndex(pathStr, "/")
+	if slashIdx <= 0 {
+		// No parent — send full path with bare JSON value.
+		path, err := c.parsePath(pathStr, origin, target)
+		if err != nil {
+			return nil, nil, err
+		}
+		jsonVal, err := c.scalarToJSON(valueStr)
+		if err != nil {
+			return nil, nil, err
+		}
+		val := &gnmipb.TypedValue{
+			Value: &gnmipb.TypedValue_JsonIetfVal{JsonIetfVal: []byte(jsonVal)},
+		}
+		return path, val, nil
+	}
+
+	parentPath := pathStr[:slashIdx]
+	leaf := pathStr[slashIdx+1:]
+
+	// Strip any YANG module prefix from the leaf name (e.g. "oc-intf:mtu" -> "mtu")
+	if colonIdx := strings.LastIndex(leaf, ":"); colonIdx >= 0 {
+		leaf = leaf[colonIdx+1:]
+	}
+
+	path, err := c.parsePath(parentPath, origin, target)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Build JSON envelope: {"<leaf>": <value>}
+	jsonVal, err := c.scalarToJSON(valueStr)
+	if err != nil {
+		return nil, nil, err
+	}
+	jsonBody := fmt.Sprintf(`{"%s": %s}`, leaf, jsonVal)
+	debugLog.Printf("buildPathAndValue: parent=%s, leaf=%s, body=%s", parentPath, leaf, jsonBody)
+
+	val := &gnmipb.TypedValue{
+		Value: &gnmipb.TypedValue_JsonIetfVal{JsonIetfVal: []byte(jsonBody)},
+	}
+	return path, val, nil
+}
+
+// scalarToJSON converts a plain string value to its JSON representation.
+// Numbers and booleans are returned as-is; strings are JSON-quoted.
+func (c *GNMIClient) scalarToJSON(valueStr string) (string, error) {
+	lower := strings.ToLower(valueStr)
+	if lower == "true" || lower == "false" {
+		return lower, nil
+	}
+	// Try integer
+	if _, err := strconv.ParseInt(valueStr, 10, 64); err == nil {
+		return valueStr, nil
+	}
+	if _, err := strconv.ParseUint(valueStr, 10, 64); err == nil {
+		return valueStr, nil
+	}
+	// Try float
+	if _, err := strconv.ParseFloat(valueStr, 64); err == nil {
+		return valueStr, nil
+	}
+	// String — JSON-quote it
+	b, err := json.Marshal(valueStr)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal string: %v", err)
+	}
+	return string(b), nil
+}
+
+func (c *GNMIClient) printSetResponse(response *gnmipb.SetResponse) {
+	fmt.Println("=== Set Response ===")
+	if response.Prefix != nil {
+		fmt.Printf("Prefix: %s\n", c.pathToString(response.Prefix))
+	}
+	if len(response.Response) > 0 {
+		fmt.Printf("Responses: %d\n", len(response.Response))
+		for i, resp := range response.Response {
+			fmt.Printf("  Response[%d]: path=%s\n", i, c.pathToString(resp.Path))
+		}
+	}
+	if response.Timestamp != 0 {
+		timestamp := time.Unix(0, response.Timestamp)
+		fmt.Printf("Timestamp: %s\n", timestamp.Format(time.RFC3339))
+	}
+	fmt.Println("====================")
 }

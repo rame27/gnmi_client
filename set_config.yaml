@@ -1,0 +1,61 @@
+# gNMI Set Configuration for SONiC switch
+# Tested and working with SONiC translib (openconfig-interfaces YANG model).
+#
+# Key rules for SONiC translib Set operations:
+#   1. Path must end at the PARENT CONTAINER of the leaf(s) to change.
+#      e.g. to set mtu leaf, path = .../interface[name=X]/config  (NOT .../config/mtu)
+#   2. Value must be a JSON object wrapping the container:
+#      {"config": {"mtu": 9100}}
+#      (request_binder strips the last path element, so JSON must include it as a key)
+#   3. Values are encoded as JsonIetfVal (IETF JSON).
+
+# Connection settings
+connection:
+  target: "192.168.20.31:50051"
+  timeout: 30s
+
+# TLS configuration - same certs as config.yaml
+tls:
+  enabled: true
+  ca_certificate: "certs/server_ca.crt"
+  client_certificate: "certs/client.crt"
+  client_key: "certs/client.key"
+  server_name: "mydomain.com"
+  insecure_skip_verify: false
+
+# Authentication
+authentication:
+  username: "admin"
+  password: "ramesh"
+
+# Set operation configuration
+# ──────────────────────────────────────────────────────────────────────────────
+# EXAMPLE: Set MTU on Ethernet12
+#   Path ends at the parent container (/config), value wraps the leaf in JSON.
+# ──────────────────────────────────────────────────────────────────────────────
+set:
+  updates:
+    # Set MTU to 9100 on Ethernet12
+    - path: "/interfaces/interface[name=Ethernet12]/config"
+      value: '{"config": {"mtu": 1500}}'
+      origin: "openconfig"
+      description: "Set MTU to 1500 for Ethernet12"
+
+    # Uncomment to also set the interface description:
+    # - path: "/interfaces/interface[name=Ethernet12]/config"
+    #   value: '{"config": {"description": "Uplink to server"}}'
+    #   origin: "openconfig"
+
+    # Uncomment to enable/disable the interface:
+    # - path: "/interfaces/interface[name=Ethernet12]/config"
+    #   value: '{"config": {"enabled": true}}'
+    #   origin: "openconfig"
+
+  # Replaces (same path/value format as updates):
+  replaces: []
+
+  # Deletes (path only, no value):
+  deletes: []
+  # Example delete:
+  #   - path: "/interfaces/interface[name=Ethernet12]/config"
+  #     origin: "openconfig"

@@ -1,0 +1,76 @@
+# gNMI Set Configuration Example
+# This file demonstrates how to configure set operations for SONiC switches
+
+# Connection settings
+connection:
+  target: "192.168.20.31:50051"
+  timeout: 30s
+
+# TLS configuration
+tls:
+  enabled: true
+  ca_certificate: "certs/server_ca.crt"
+  client_certificate: "certs/client.crt"
+  client_key: "certs/client.key"
+  server_name: "mydomain.com"
+  insecure_skip_verify: false
+
+# Authentication
+authentication:
+  username: "admin"
+  password: "ramesh"
+
+# Set operation configuration
+set:
+  # Operation type: update, replace, or delete
+  # update: sets value if path doesn't exist, modifies if it does
+  # replace: replaces existing value, fails if path doesn't exist
+  # delete: removes the configured path
+  operation: "update"
+  
+  # Updates: set new values
+  updates:
+    # Set interface MTU
+    - path: "/interfaces/interface[name=Ethernet12]/config/mtu"
+      value: "9100"
+      origin: "openconfig"
+      description: "Set MTU to 9100 for Ethernet12"
+    
+    # Set interface admin state
+    - path: "/interfaces/interface[name=Ethernet12]/config/enabled"
+      value: "true"
+      origin: "openconfig"
+      description: "Enable Ethernet12 interface"
+    
+    # Set interface description
+    - path: "/interfaces/interface[name=Ethernet12]/config/description"
+      value: "Uplink to server"
+      origin: "openconfig"
+      description: "Set description for Ethernet12"
+    
+    # Set port speed
+    - path: "/interfaces/interface[name=Ethernet12]/ethernet/config/port-speed"
+      value: "openconfig-if-ethernet:SPEED_10GB"
+      origin: "openconfig"
+      description: "Set port speed to 10G for Ethernet12"
+    
+    # Set auto-negotiate
+    - path: "/interfaces/interface[name=Ethernet12]/ethernet/config/auto-negotiate"
+      value: "false"
+      origin: "openconfig"
+      description: "Disable auto-negotiate for Ethernet12"
+
+  # Replaces: replace existing values (similar to update but stricter)
+  replaces:
+    # Example: Replace interface MTU
+    # - path: "/interfaces/interface[name=Ethernet12]/config/mtu"
+    #   value: "1500"
+    #   origin: "openconfig"
+    #   description: "Replace MTU with 1500"
+
+  # Deletes: remove configuration paths
+  deletes:
+    # Example: Delete interface description
+    # - path: "/interfaces/interface[name=Ethernet12]/config/description"
+    #   origin: "openconfig"
+    #   description: "Remove description from Ethernet12"

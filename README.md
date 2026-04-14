@@ -9,6 +9,10 @@ A Go-based gNMI client implementation for SONiC switches with support for TLS, m
   - `once`: Single GET request to retrieve current state
   - `poll`: Periodic polling at configurable intervals
   - `stream`: Continuous streaming subscription with sample intervals
+- **Set Operations**: Configure SONiC switch settings via gNMI SetRequest
+  - `update`: Set or modify configuration values
+  - `replace`: Replace existing configuration values
+  - `delete`: Remove configuration paths
 - **YANG Model Based**: Pre-configured paths based on SONiC YANG models from `src/sonic-mgmt-common/models/yang`
 - **Configurable**: YAML-based configuration file for easy customization
 - **Counter Support**: Sample counter paths for interface statistics, ACL counters, etc.
@@ -43,6 +47,7 @@ Available options:
 - `-target`: Target address override (e.g., `localhost:50051`)
 - `-timeout`: Connection timeout (default: `30s`)
 - `-d`: Enable debug logging (verbose output with timestamps)
+- `-set`: Execute set operation instead of subscription
 
 ### Examples
 
@@ -82,6 +87,12 @@ Available options:
 # Option 3: Disable TLS entirely
 ./gnmi_client -config config.yaml -d -mode once
 # (Set tls.enabled: false in config.yaml)
+```
+
+#### Set Operations (Configuration Changes)
+```bash
+# Run a Set operation using set_config.yaml
+./gnmi_client -config set_config.yaml -d -set
 ```
 
 #### Running on SONiC Switch
@@ -265,6 +276,117 @@ authentication:
 ```
 
 Credentials are sent via gRPC metadata headers.
+
+## Set Operations
+
+The client supports gNMI Set operations for configuring SONiC switches. Use the `-set` flag
+with a config file that has a `set:` section.
+
+```bash
+./gnmi_client -config set_config.yaml -d -set
+```
+
+### SONiC Translib Path/Value Rules (Critical)
+
+The SONiC gNMI server uses `translib` / `request_binder` which has specific requirements:
+
+1. **Path must end at the parent container**, not the leaf:
+   - Correct: `/interfaces/interface[name=Ethernet12]/config`
+   - Wrong: `/interfaces/interface[name=Ethernet12]/config/mtu`
+
+2. **Value must be a JSON object** that wraps the container name:
+   - Correct: `'{"config": {"mtu": 9100}}'`
+   - Wrong: `'{"mtu": 9100}'` → error "unexpected field mtu in interface container"
+   - Wrong: `9100` → error "got type float64, expect map[string]interface{}"
+
+3. **Value encoding**: the client always uses `JsonIetfVal` (IETF JSON), which is what SONiC translib requires.
+
+**Why the extra wrapping?** The translib `request_binder` strips the last path element and treats the
+value as the body of that element. So if the path ends at `config`, the JSON body must contain
+`{"config": {...}}` for the binding to succeed.
+
+### Set Configuration File
+
+The `set_config.yaml` file shows a working example. The general structure:
+
+```yaml
+set:
+  updates:
+    - path: "/interfaces/interface[name=Ethernet12]/config"
+      value: '{"config": {"mtu": 9100}}'
+      origin: "openconfig"
+      description: "Set MTU to 9100 for Ethernet12"
+
+  replaces: []
+
+  deletes:
+    # Path only, no value:
+    # - path: "/interfaces/interface[name=Ethernet12]/config"
+    #   origin: "openconfig"
+```
+
+### Scalar value shorthand
+
+As an alternative to writing raw JSON, you can point the path directly at the leaf and supply
+a plain scalar value. The client will automatically split off the leaf, build the correct JSON
+envelope, and send the path to the parent container:
+
+```yaml
+set:
+  updates:
+    - path: "/interfaces/interface[name=Ethernet12]/config/mtu"
+      value: "9100"         # plain integer — client wraps to {"mtu": 9100}
+      origin: "openconfig"
+```
+
+This produces exactly the same wire format as the explicit JSON form above.
+
+### Working Examples
+
+#### Set MTU
+```yaml
+set:
+  updates:
+    - path: "/interfaces/interface[name=Ethernet12]/config"
+      value: '{"config": {"mtu": 9100}}'
+      origin: "openconfig"
+```
+
+#### Enable/disable an interface
+```yaml
+set:
+  updates:
+    - path: "/interfaces/interface[name=Ethernet12]/config"
+      value: '{"config": {"enabled": true}}'
+      origin: "openconfig"
+```
+
+#### Set interface description
+```yaml
+set:
+  updates:
+    - path: "/interfaces/interface[name=Ethernet12]/config"
+      value: '{"config": {"description": "Uplink to server"}}'
+      origin: "openconfig"
+```
+
+### Switch-side prerequisites
+
+For Set operations to work on a SONiC switch the following must be configured on the switch:
+
+1. **Enable translib write** — the telemetry daemon must be started with `-gnmi_translib_write`:
+   ```bash
+   docker exec gnmi sonic-db-cli CONFIG_DB hset 'GNMI|gnmi' 'gnmi_translib_write' 'true'
+   # Then restart the telemetry process:
+   docker exec gnmi supervisorctl restart gnmi-native
+   ```
+
+2. **Client certificate role** — the role for the client cert CN in CONFIG_DB must be `gnmi_readwrite`:
+   ```bash
+   docker exec gnmi sonic-db-cli CONFIG_DB hset 'GNMI_CLIENT_CERT|admin' 'role@' 'gnmi_readwrite'
+   ```
+   The role must start with the gNMI service name (`gnmi`) followed by `_readwrite`; `readwrite`
+   alone is not sufficient (checked in `clientCertAuth.go`).
 
 ## Error Handling
 

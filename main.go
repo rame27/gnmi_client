@@ -20,6 +20,7 @@ var (
 	target     = flag.String("target", "", "Target address (overrides config)")
 	timeout    = flag.Duration("timeout", 30*time.Second, "Connection timeout")
 	debug      = flag.Bool("d", false, "Enable debug logging")
+	setConfig  = flag.Bool("set", false, "Execute set operation instead of subscription")
 )
 
 var debugLog *log.Logger
@@ -70,6 +71,18 @@ func main() {
 	defer client.Close()
 
 	debugLog.Printf("Successfully connected to gNMI server")
+
+	if *setConfig {
+		debugLog.Printf("Executing set operation...")
+		if err := client.Set(ctx); err != nil {
+			debugLog.Printf("Set operation failed: %v", err)
+			fmt.Fprintf(os.Stderr, "Set operation failed: %v\n", err)
+			os.Exit(1)
+		}
+		debugLog.Printf("Set operation completed successfully")
+		fmt.Println("Set operation completed successfully")
+		return
+	}
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
